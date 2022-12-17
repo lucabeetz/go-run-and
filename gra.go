@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -23,11 +27,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	textRequest := os.Args[1]
-	requestBody := fmt.Sprintf(`{"model": "code-davinci-002", "prompt": "%s\n'''bash\n", "temperature": 0, "max_tokens": 100, "stop": "'''"}`, textRequest)
+	// Construct request body
+	textRequest := strings.TrimSuffix(os.Args[1], "\n")
+	prompt := fmt.Sprintf("%s (on macos)\n```bash\n#!/bin/bash\n", textRequest)
+	requestBody := map[string]interface{}{
+		"model":       "code-davinci-002",
+		"prompt":      prompt,
+		"temperature": 0,
+		"max_tokens":  256,
+		"stop":        "```",
+	}
 
 	// Construct completion request body
-	jsonBody := []byte(requestBody)
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
+	}
 	bodyReader := bytes.NewReader(jsonBody)
 
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/completions", bodyReader)
@@ -52,8 +68,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get completion and trim newlines
 	completion := gjson.Get(string(resBody), "choices.0.text").String()
-	// completion = strings.TrimRight(completion, "\n")
+	completion = strings.TrimPrefix(completion, "\n")
+	completion = strings.TrimSuffix(completion, "\n")
 
-	fmt.Printf("Suggested:\n%s", completion)
+	// Ask user for confirmation to run suggested command
+	fmt.Printf("Suggested:\n%s\n", completion)
+	fmt.Printf("Run? [y/N] ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
+	}
+
+	// Run suggested command if user confirms
+	if strings.ToLower(strings.TrimSuffix(input, "\n")) == "y" {
+		cmd := exec.Command("bash", "-c", completion)
+		cmd.Stdout = os.Stdout
+		err := cmd.Run()
+		if err != nil {
+			fmt.Printf("Error running command: %s", err)
+			os.Exit(1)
+		}
+	}
 }
