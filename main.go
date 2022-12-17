@@ -1,4 +1,4 @@
-package gra
+package main
 
 import (
 	"bufio"
