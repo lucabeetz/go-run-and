@@ -14,22 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: gra <request>")
-		os.Exit(1)
-	}
-
-	// Check if OPENAI_API_KEY is set
-	apiKey, ok := os.LookupEnv("OPENAI_API_KEY")
-	if !ok {
-		fmt.Println("OPENAI_API_KEY is not set")
-		os.Exit(1)
-	}
-
-	// Construct request body
-	textRequest := strings.TrimSuffix(os.Args[1], "\n")
-	prompt := fmt.Sprintf("%s (on macos)\n```bash\n#!/bin/bash\n", textRequest)
+func makeRequest(prompt string, apiKey string) string {
 	requestBody := map[string]interface{}{
 		"model":       "code-davinci-002",
 		"prompt":      prompt,
@@ -56,17 +41,51 @@ func main() {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
+	// Make request
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
 		os.Exit(1)
 	}
 
+	// Read response body
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
 		os.Exit(1)
 	}
+
+	return string(resBody)
+}
+
+func runCommand(command string) {
+	cmd := exec.Command("bash", "-c", command)
+	cmd.Stdout = os.Stdout
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("Error running command: %s", err)
+		os.Exit(1)
+	}
+}
+
+func main() {
+	// Check for correct usage
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: gra <request>")
+		os.Exit(1)
+	}
+
+	// Check if OPENAI_API_KEY is set
+	apiKey, ok := os.LookupEnv("OPENAI_API_KEY")
+	if !ok {
+		fmt.Println("OPENAI_API_KEY is not set")
+		os.Exit(1)
+	}
+
+	// Construct prompt and make completion request
+	textRequest := strings.TrimSuffix(os.Args[1], "\n")
+	prompt := fmt.Sprintf("%s (on macos)\n```bash\n#!/bin/bash\n", textRequest)
+	resBody := makeRequest(prompt, apiKey)
 
 	// Get completion and trim newlines
 	completion := gjson.Get(string(resBody), "choices.0.text").String()
@@ -75,7 +94,7 @@ func main() {
 
 	// Ask user for confirmation to run suggested command
 	fmt.Printf("Suggested:\n%s\n", completion)
-	fmt.Printf("Run? [y/N] ")
+	fmt.Printf("Run? [y/N] | [e] for explanation\n")
 
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
@@ -84,14 +103,40 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get input
+	input = strings.ToLower(strings.TrimSuffix(input, "\n"))
+
 	// Run suggested command if user confirms
-	if strings.ToLower(strings.TrimSuffix(input, "\n")) == "y" {
-		cmd := exec.Command("bash", "-c", completion)
-		cmd.Stdout = os.Stdout
-		err := cmd.Run()
-		if err != nil {
-			fmt.Printf("Error running command: %s", err)
-			os.Exit(1)
-		}
+	if input == "y" {
+		runCommand(completion)
+		return
+	} else if input == "e" {
+		explanationPrompt := fmt.Sprintf("%s (on macos)\n```bash\n#!/bin/bash\n%s\nExplanation\n", textRequest, completion)
+		resBody = makeRequest(explanationPrompt, apiKey)
+
+		explanation := gjson.Get(resBody, "choices.0.text").String()
+		explanation = strings.TrimPrefix(explanation, "\n")
+		explanation = strings.TrimSuffix(explanation, "\n")
+
+		fmt.Printf("Explanation:\n%s\n", explanation)
+	} else {
+		fmt.Println("Aborting")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Run? [y/N]\n")
+
+	reader = bufio.NewReader(os.Stdin)
+	input, err = reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
+	}
+
+	// Get input
+	input = strings.ToLower(strings.TrimSuffix(input, "\n"))
+
+	if input == "y" {
+		runCommand(completion)
 	}
 }
