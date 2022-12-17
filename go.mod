@@ -1,4 +1,4 @@
-module gra
+module github.com/lucabeetz/gra
 
 go 1.19
 
