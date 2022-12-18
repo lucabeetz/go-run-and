@@ -10,11 +10,31 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/theckman/yacspin"
 	"github.com/tidwall/gjson"
 )
 
 func makeRequest(prompt string, apiKey string) string {
+	cfg := yacspin.Config{
+		Frequency:       100 * time.Millisecond,
+		CharSet:         yacspin.CharSets[59],
+		Suffix:          "",
+		SuffixAutoColon: true,
+		Message:         "",
+		StopCharacter:   "✓",
+		StopColors:      []string{"fgGreen"},
+	}
+	spinner, err := yacspin.New(cfg)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
+	}
+
+	spinner.Start()
+	spinner.Message("Making API request")
+
 	requestBody := map[string]interface{}{
 		"model":       "code-davinci-002",
 		"prompt":      prompt,
@@ -55,6 +75,7 @@ func makeRequest(prompt string, apiKey string) string {
 		os.Exit(1)
 	}
 
+	spinner.Stop()
 	return string(resBody)
 }
 
